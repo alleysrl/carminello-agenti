@@ -149,7 +149,13 @@
     el("ricontrolla").onclick = boot;
   }
 
-  async function logout() { await db.auth.signOut(); user = null; me = null; location.hash = ""; renderLogin(); }
+  function uscitaSicura(client, chiave) {
+    // 1) cancella la sessione sul dispositivo (non può fallire) 2) avvisa il server 3) pulizia manuale per sicurezza
+    return client.auth.signOut({ scope: "local" }).catch(() => {}).then(() => client.auth.signOut({ scope: "global" }).catch(() => {})).finally(() => {
+      try { Object.keys(localStorage).forEach(k => { if (k === chiave || k.startsWith(chiave + "-") || (chiave === "" && /^sb-.*-auth-token/.test(k))) localStorage.removeItem(k); }); } catch (_) {}
+    });
+  }
+  async function logout() { await uscitaSicura(db, "carminello-agenti-auth"); user = null; me = null; location.hash = ""; renderLogin(); }
 
   const DEMO = /[?&]demo=1/.test(location.search);
   function datiDemo() {
@@ -178,8 +184,8 @@
     const { data } = await db.auth.getSession(); user = data.session ? data.session.user : null;
     if (!user) return renderLogin();
     const { data: p, error } = await db.from("profiles").select("*").eq("id", user.id).maybeSingle(); me = p;
-    if (error || !p) { await db.auth.signOut(); return renderLogin("Non riesco a leggere il tuo profilo. Riprova."); }
-    if (p.ruolo !== "agente") { await db.auth.signOut(); return renderLogin(p.ruolo === "admin" ? "Questo è l'account del titolare: usa la dashboard." : "Questo account è un cliente Carminello, non un agente. Per ordinare usa il sito; se vuoi diventare agente scrivici su WhatsApp."); }
+    if (error || !p) { await uscitaSicura(db, "carminello-agenti-auth"); return renderLogin("Non riesco a leggere il tuo profilo. Riprova."); }
+    if (p.ruolo !== "agente") { await uscitaSicura(db, "carminello-agenti-auth"); return renderLogin(p.ruolo === "admin" ? "Questo è l'account del titolare: usa la dashboard." : "Questo account è un cliente Carminello, non un agente. Per ordinare usa il sito; se vuoi diventare agente scrivici su WhatsApp."); }
     if (!p.approvato) return renderAttesa();
     el("top").hidden = false;
     el("user").innerHTML = `<span>${esc(p.nome || p.email)}</span><button id="logout">Esci</button>`; el("logout").onclick = logout;
