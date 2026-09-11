@@ -145,7 +145,30 @@
 
   async function logout() { await db.auth.signOut(); user = null; me = null; location.hash = ""; renderLogin(); }
 
+  const DEMO = /[?&]demo=1/.test(location.search);
+  function datiDemo() {
+    const DAY = 86400000, now = Date.now(); let n = 400;
+    const cl = [
+      { id: "d1", ragione_sociale: "Pizzeria Da Gigi", nome: "Luigi", cognome: "Verdi", tipo: "b2b", approvato: true, telefono: "3331112233", email: "gigi@esempio.it", indirizzo: { via: "Via Roma 1", citta: "Prato", cap: "59100", prov: "PO" }, created_at: new Date(now - 200 * DAY).toISOString(), ritmo: 14, cart: 6 },
+      { id: "d2", ragione_sociale: "Bar Centrale", nome: "Anna", cognome: "Bianchi", tipo: "b2b", approvato: true, telefono: "3334445566", email: "bar@esempio.it", indirizzo: { via: "Piazza Duomo 4", citta: "Firenze", cap: "50122", prov: "FI" }, created_at: new Date(now - 150 * DAY).toISOString(), ritmo: 21, cart: 3, ultimo: 50 },
+      { id: "d3", ragione_sociale: "Ingrosso Alimentare Toscana", nome: "Marco", cognome: "Rossi", tipo: "rivenditore", approvato: true, telefono: "3337778899", email: "ingrosso@esempio.it", indirizzo: { via: "Via Industria 12", citta: "Sesto Fiorentino", cap: "50019", prov: "FI" }, created_at: new Date(now - 300 * DAY).toISOString(), ritmo: 30, cart: 20 },
+      { id: "d4", ragione_sociale: "Trattoria La Pergola", nome: "Sara", cognome: "Neri", tipo: "b2b", approvato: false, telefono: "3339990011", email: "pergola@esempio.it", indirizzo: { via: "Via del Colle 8", citta: "Pistoia", cap: "51100", prov: "PT" }, created_at: new Date(now - 2 * DAY).toISOString(), ritmo: 0, cart: 0 }
+    ];
+    const ordini = [], provv = {};
+    cl.forEach(c => { if (!c.ritmo) return; let t = now - (c.ultimo || 3) * DAY; while (t > now - 330 * DAY) {
+      const d = new Date(t); const sub = c.cart * 32; const pagato = t < now - 5 * DAY; const mese = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
+      ordini.push({ id: "o" + n, numero: n++, user_id: c.id, tipo: c.tipo, stato: pagato ? "spedito" : "da_pagare", pagato, metodo_pagamento: "bonifico", cartoni: c.cart, subtotale: sub, totale: sub, provvigione_pct: 20, provvigione: +(sub * 0.2).toFixed(2), created_at: d.toISOString(), agente_id: "agente-demo" });
+      const r = provv[mese] = provv[mese] || { agente_id: "agente-demo", mese, ordini: 0, cartoni: 0, fatturato: 0, maturata: 0, liquidata: 0, in_attesa: 0 };
+      r.ordini++; r.cartoni += c.cart; if (pagato) { r.fatturato += sub; r.maturata += sub * 0.2; if (t < now - 40 * DAY) r.liquidata += sub * 0.2; } else r.in_attesa += sub * 0.2;
+      t -= (c.ritmo + Math.round(Math.random() * 6 - 3)) * DAY; } });
+    return { clienti: cl, ordini: ordini.sort((a, b) => b.numero - a.numero), provv: Object.values(provv).sort((a, b) => b.mese.localeCompare(a.mese)), note: [{ id: "n1", user_id: "d2", tipo: "chiamata", esito: "richiamare", testo: "Ha finito le scorte tardi, richiamare lunedì", created_at: new Date(now - 10 * DAY).toISOString() }] };
+  }
   async function boot() {
+    if (DEMO) {
+      user = { id: "agente-demo", email: "demo@esempio.it" }; me = { id: "agente-demo", nome: "Mario", cognome: "Rossi", email: "demo@esempio.it", telefono: "3331234567", ruolo: "agente", approvato: true, provvigione_pct: 20, codice_agente: "MARIO24" };
+      el("top").hidden = false; el("user").innerHTML = `<span>Dati di prova</span><button id="logout">Esci</button>`; el("logout").onclick = () => location.search = "";
+      await loadAll(); route(); return;
+    }
     const { data } = await db.auth.getSession(); user = data.session ? data.session.user : null;
     if (!user) return renderLogin();
     const { data: p, error } = await db.from("profiles").select("*").eq("id", user.id).maybeSingle(); me = p;
@@ -159,6 +182,14 @@
 
   // ================================================================ DATI
   async function loadAll() {
+    if (DEMO) {
+      const d = datiDemo(); D.clienti = d.clienti; D.ordini = d.ordini; D.note = d.note; D.provv = d.provv; D.cfg = Object.assign({}, Stats.DEFAULT_CFG); D.prod = [{ id: "base", nome_it: "Base 33 cm — cartone da 20", pezzi: 20 }];
+      D.byUser = {}; D.ordini.forEach(x => { (D.byUser[x.user_id] = D.byUser[x.user_id] || []).push(x); });
+      D.noteBy = {}; D.note.forEach(x => { (D.noteBy[x.user_id] = D.noteBy[x.user_id] || []).push(x); });
+      D.prezziBy = { d1: { base: 32 }, d2: { base: 33 }, d3: { base: 29 } };
+      D.stat = {}; D.clienti.forEach(x => { D.stat[x.id] = Stats.cliente(x, D.byUser[x.id] || [], D.cfg); });
+      return;
+    }
     const [c, o, n, pv, i, pr, pz] = await Promise.all([
       db.from("profiles").select("*").eq("agente_id", user.id).order("created_at", { ascending: false }),
       db.from("orders").select("*").order("created_at", { ascending: false }).limit(3000),
@@ -214,7 +245,7 @@
   }
   let rtChannel = null;
   function avviaTempoReale() {
-    if (rtChannel) return;
+    if (rtChannel || DEMO) return;
     rtChannel = db.channel("agenti-ordini").on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, async payload => {
       await loadAll(); const o = payload.new; const c = D.clienti.find(x => x.id === o.user_id);
       if (c) { toast("Nuovo ordine di " + nome(c) + ": " + o.cartoni + " cartoni", "ok"); beep(); }
@@ -243,6 +274,7 @@
   }
   window.addEventListener("hashchange", () => { if (user) route(); });
   async function refresh() { await loadAll(); route(); }
+  const dbw = { rpc: (...a) => DEMO ? Promise.resolve({ error: { message: "Modalità prova: le modifiche non vengono salvate" } }) : db.rpc(...a) };
   function bindRows() { el("view").querySelectorAll("[data-go]").forEach(r => r.addEventListener("click", () => location.hash = r.getAttribute("data-go"))); }
 
   // ================================================================ HOME
@@ -294,7 +326,7 @@
     el("n-save").onclick = async () => {
       const tipo = el("n-tipo").value === "visita" ? "nota" : el("n-tipo").value;
       const testo = (el("n-tipo").value === "visita" ? "Visita: " : "") + (el("n-testo").value.trim() || (NOTA_TIPO[el("n-tipo").value] + (el("n-esito").value ? ": " + el("n-esito").value : "")));
-      const { error } = await db.rpc("agente_aggiungi_nota", { p_user_id: uid, p_tipo: tipo, p_testo: testo, p_esito: el("n-esito").value || null });
+      const { error } = await dbw.rpc("agente_aggiungi_nota", { p_user_id: uid, p_tipo: tipo, p_testo: testo, p_esito: el("n-esito").value || null });
       if (error) { toast(error.message, "err"); return; }
       closeModal(); toast("Contatto salvato", "ok"); await refresh();
     };
@@ -371,7 +403,7 @@
         </div>
       </div>`;
     bindCallButtons();
-    el("view").querySelectorAll("[data-delnota]").forEach(x => x.onclick = async e => { e.preventDefault(); if (!confirm("Eliminare questa nota?")) return; const { error } = await db.rpc("agente_elimina_nota", { p_id: x.getAttribute("data-delnota") }); if (error) toast(error.message, "err"); else refresh(); });
+    el("view").querySelectorAll("[data-delnota]").forEach(x => x.onclick = async e => { e.preventDefault(); if (!confirm("Eliminare questa nota?")) return; const { error } = await dbw.rpc("agente_elimina_nota", { p_id: x.getAttribute("data-delnota") }); if (error) toast(error.message, "err"); else refresh(); });
   }
 
   // ================================================================ NUOVO CLIENTE
@@ -429,7 +461,7 @@
       if (!v("c-nome") || !v("c-tel") || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("c-email"))) return err("Servono nome del referente, telefono e un'email valida.");
       const btn = el("c-invia"); btn.disabled = true; btn.textContent = "Invio in corso…";
       const body = { tipo, piva: v("c-piva"), ragione_sociale: v("c-rs"), nome: v("c-nome"), cognome: v("c-cognome"), telefono: v("c-tel"), email: v("c-email"), sdi: v("c-sdi"), pec: v("c-pec"), indirizzo: { via: v("c-via"), citta: v("c-citta"), cap: v("c-cap"), prov: v("c-prov").toUpperCase() } };
-      const { data, error } = await db.functions.invoke("invita-cliente", { body });
+      const { data, error } = DEMO ? { data: { error: "Modalità prova: nessun invito inviato" } } : await db.functions.invoke("invita-cliente", { body });
       btn.disabled = false; btn.textContent = "Registra e invia l'email al cliente";
       let m = null; if (error) { try { m = (await error.context.json()).error; } catch (_) { m = error.message; } } else if (data && data.error) m = data.error;
       if (m) return err(m);
@@ -495,7 +527,7 @@
       </div>`;
     el("pf").addEventListener("submit", async e => {
       e.preventDefault(); const v = id => el(id).value.trim();
-      const { error } = await db.rpc("aggiorna_profilo", { p_dati: { nome: v("p-nome"), cognome: v("p-cognome"), telefono: v("p-tel"), piva: v("p-piva").replace(/\D/g, ""), ragione_sociale: v("p-rs") } });
+      const { error } = await dbw.rpc("aggiorna_profilo", { p_dati: { nome: v("p-nome"), cognome: v("p-cognome"), telefono: v("p-tel"), piva: v("p-piva").replace(/\D/g, ""), ragione_sociale: v("p-rs") } });
       if (error) toast(error.message, "err"); else { toast("Dati salvati", "ok"); const { data: p } = await db.from("profiles").select("*").eq("id", user.id).maybeSingle(); if (p) me = p; route(); }
     });
     el("p-notif").onclick = attivaNotifiche; el("p-share").onclick = condividiLink; el("p-logout").onclick = logout;
