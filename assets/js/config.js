@@ -1,6 +1,6 @@
 /* CARMINELLO AGENTI — configurazione (stesso database del negozio e della dashboard) */
 const CONFIG = {
-  VERSIONE: "2026-09-11a",
+  VERSIONE: "2026-09-12a",
   SUPABASE_URL: "https://pbohjckxocshkwoyjiko.supabase.co",
   SUPABASE_KEY: "sb_publishable_yIq72Tx8gohzpKjui7oJMw_VTeNzqh5",
   SHOP_URL: "https://alleysrl.github.io/carminello-shop",

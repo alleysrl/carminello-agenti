@@ -35,6 +35,12 @@
   const meseLabel = d => new Date(d).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
   const meseCorrente = () => { const n = new Date(); return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0") + "-01"; };
   const linkCliente = () => CONFIG.SHOP_URL + "/account.html?agente=" + (me && me.codice_agente || "");
+  const linkApp = () => CONFIG.SHOP_URL + "/?agente=" + (me && me.codice_agente || "");   // apre l'app clienti già collegata all'agente
+  function qrSvg(testo, px) { try { const q = window.qrcode(0, "M"); q.addData(testo); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }).replace("<svg ", `<svg style="width:${px}px;height:${px}px;max-width:100%;background:#fff;border-radius:10px" `); } catch (e) { return ""; } }
+  function qrModal(titolo, link, sotto) {
+    modal(`<div style="text-align:center"><h2>${esc(titolo)}</h2>${qrSvg(link, 320)}<p class="small" style="word-break:break-all;margin:.6rem 0">${esc(link)}</p><p class="small muted">${esc(sotto)}</p><button class="btn ghost" id="q-close">Chiudi</button></div>`);
+    el("q-close").onclick = closeModal;
+  }
 
   // ================================================================ ACCESSO
   function renderLogin(msg, tab) {
@@ -295,11 +301,19 @@
         ${chiamare.length ? chiamare.map(x => callCard(x)).join("") : '<p class="muted" style="margin:0">Nessuno da chiamare: i tuoi clienti stanno ordinando con il loro ritmo.</p>'}
       </div>
       <div class="card"><h2>Cartoni dei tuoi clienti, ultimi 12 mesi</h2>${barChart(Stats.mensile(D.ordini, 12, now), { val: x => x.cartoni })}</div>
-      <div class="card"><h2>Il tuo link per i clienti</h2>
-        <p class="small">Chi si registra da questo link resta collegato a te. Mandalo su WhatsApp o fai inquadrare il QR.</p>
-        <div class="actions"><button class="btn" id="h-share">Condividi il link</button><a class="btn ghost" href="#/nuovo">Registra un cliente ora</a></div>
+      <div class="card"><h2>Fai scaricare l'app al cliente</h2>
+        <div style="display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap">
+          <div id="h-qr" style="cursor:pointer" title="Tocca per ingrandire">${qrSvg(linkApp(), 150)}</div>
+          <div style="flex:1;min-width:220px">
+            <p class="small" style="margin:0 0 .5rem">Il cliente inquadra questo QR con la fotocamera: si apre l'app rossa <b>già collegata a te</b>. Poi si registra come esercente e Carminello lo attiva con il prezzo.</p>
+            <p class="small muted" style="margin:0 0 .6rem">Per averla come app sul telefono: Android → menu di Chrome → "Aggiungi a schermata Home"; iPhone → Condividi → "Aggiungi alla schermata Home".</p>
+            <div class="actions"><button class="btn" id="h-qr-big">Mostra il QR a schermo intero</button><button class="btn ghost" id="h-share">Condividi il link</button></div>
+          </div>
+        </div>
       </div>`;
     bindCallButtons(); bindRows(); el("h-share").onclick = condividiLink;
+    const apriQr = () => qrModal("Scarica l'app Carminello", linkApp(), "Fai inquadrare il QR al cliente: l'app si apre già collegata a te.");
+    el("h-qr").onclick = apriQr; el("h-qr-big").onclick = apriQr;
   }
   function callCard(x) {
     const { c, s, n } = x; const t = tel(c), w = wa(t);
@@ -431,14 +445,14 @@
         <div>
           <div class="card"><h2>Oppure si registra da solo</h2>
             <p class="small">Con il tuo link o il QR il cliente compila la registrazione dal suo telefono e resta collegato a te.</p>
-            <p style="text-align:center"><img alt="QR" width="180" height="180" style="border-radius:10px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(linkCliente())}"></p>
+            <p style="text-align:center" id="n-qr" title="Tocca per ingrandire">${qrSvg(linkCliente(), 200)}</p>
             <p class="small" style="word-break:break-all"><a href="${esc(linkCliente())}" target="_blank" rel="noopener">${esc(linkCliente())}</a></p>
             <div class="actions"><button class="btn" id="n-share">Condividi</button><a class="btn ghost" href="https://wa.me/?text=${encodeURIComponent("Registrati su Carminello, le basi pizza pronte: " + linkCliente())}" target="_blank" rel="noopener">Manda su WhatsApp</a></div>
           </div>
         </div>
       </div>`;
     let tipo = "b2b"; el("view").querySelectorAll("[data-tipo]").forEach(b => b.onclick = () => { tipo = b.getAttribute("data-tipo"); el("view").querySelectorAll("[data-tipo]").forEach(x => x.classList.toggle("on", x === b)); });
-    el("n-share").onclick = condividiLink;
+    el("n-share").onclick = condividiLink; el("n-qr").onclick = () => qrModal("Registrati su Carminello", linkCliente(), "Il cliente compila la registrazione dal suo telefono e resta collegato a te.");
     // Partita IVA → dati dall'archivio VIES
     const inp = el("c-piva"), msg = el("c-piva-msg"); let ultima = "";
     async function cerca() {
@@ -519,7 +533,7 @@
           </div>
           <div class="card"><h2>Il tuo link</h2>
             <p class="small" style="word-break:break-all"><a href="${esc(linkCliente())}" target="_blank" rel="noopener">${esc(linkCliente())}</a></p>
-            <div class="actions"><button class="btn" id="p-share">Condividi</button><a class="btn ghost" href="#/nuovo">QR e registrazione sul posto</a></div>
+            <div class="actions"><button class="btn" id="p-share">Condividi</button><button class="btn ghost" id="p-qr">QR per scaricare l'app</button><a class="btn ghost" href="#/nuovo">Registrazione sul posto</a></div>
           </div>
           <div class="card"><h2>Aiuto</h2><p class="small" style="margin:0">Per prezzi, attivazioni e pagamenti scrivi a Carminello su <a href="https://wa.me/${CONFIG.WHATSAPP_CARMINELLO}" target="_blank" rel="noopener">WhatsApp +39 379 3504521</a>.</p></div>
           <p style="text-align:center"><button class="btn ghost" id="p-logout">Esci dall'app</button></p>
@@ -531,6 +545,7 @@
       if (error) toast(error.message, "err"); else { toast("Dati salvati", "ok"); const { data: p } = await db.from("profiles").select("*").eq("id", user.id).maybeSingle(); if (p) me = p; route(); }
     });
     el("p-notif").onclick = attivaNotifiche; el("p-share").onclick = condividiLink; el("p-logout").onclick = logout;
+    el("p-qr").onclick = () => qrModal("Scarica l'app Carminello", linkApp(), "Fai inquadrare il QR al cliente: l'app si apre già collegata a te.");
     pushStato().then(st => { const x = el("p-push"); if (x) x.textContent = { attivo: "attive (anche ad app chiusa)", spento: "non attive", non_supportato: "non supportate da questo browser" }[st]; });
   }
 
