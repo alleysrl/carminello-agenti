@@ -137,3 +137,7 @@ textarea { min-height: 80px; resize: vertical; }
 .nav a .cnt.blink { background: var(--red); color: #fff; animation: blink 1s ease-in-out infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(1.15); } }
 table.data tr.nuovo td { background: #fff4f2; }
+
+/* ---- Telefono: niente selezione del testo al tocco (evita la ricerca Google), tranne nei campi da compilare ---- */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+input, textarea, select, [contenteditable="true"], .selezionabile { -webkit-user-select: text; user-select: text; }
