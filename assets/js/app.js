@@ -173,7 +173,7 @@
       const r = provv[mese] = provv[mese] || { agente_id: "agente-demo", mese, ordini: 0, cartoni: 0, fatturato: 0, maturata: 0, liquidata: 0, in_attesa: 0 };
       r.ordini++; r.cartoni += c.cart; if (pagato) { r.fatturato += sub; r.maturata += sub * 0.2; if (t < now - 40 * DAY) r.liquidata += sub * 0.2; } else r.in_attesa += sub * 0.2;
       t -= (c.ritmo + Math.round(Math.random() * 6 - 3)) * DAY; } });
-    return { clienti: cl, ordini: ordini.sort((a, b) => b.numero - a.numero), provv: Object.values(provv).sort((a, b) => b.mese.localeCompare(a.mese)), note: [{ id: "n1", user_id: "d2", tipo: "chiamata", esito: "richiamare", testo: "Ha finito le scorte tardi, richiamare lunedì", created_at: new Date(now - 10 * DAY).toISOString() }] };
+    return { clienti: cl, ordini: ordini.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), provv: Object.values(provv).sort((a, b) => b.mese.localeCompare(a.mese)), note: [{ id: "n1", user_id: "d2", tipo: "chiamata", esito: "richiamare", testo: "Ha finito le scorte tardi, richiamare lunedì", created_at: new Date(now - 10 * DAY).toISOString() }] };
   }
   async function boot() {
     if (DEMO) {
@@ -416,7 +416,7 @@
       </div>
       <div class="grid two">
         <div class="card"><h2>Storico ordini</h2>
-          ${tutti.length ? `<ul class="timeline">${tutti.map((o, i) => { const next = tutti[i + 1]; const gap = next ? Stats.giorni(new Date(next.created_at), new Date(o.created_at)) : null; return `<li><span class="nowrap">${dateS(o.created_at)}</span><span>${o.cartoni} cartoni · ${PM[o.metodo_pagamento]} <span class="pill ${o.stato}">${ST[o.stato]}</span> ${o.pagato ? '<span class="pill paid">pagato</span>' : ""}${gap != null ? `<br><span class="gap">${gap} giorni dopo il precedente</span>` : ""}</span><b class="num">${money(o.subtotale)}<br><span class="small muted">provv. ${money(o.provvigione)}</span></b></li>`; }).join("")}</ul>` : '<p class="muted">Nessun ordine ancora.</p>'}
+          ${tutti.length ? `<ul class="timeline">${tutti.map((o, i) => { const next = tutti[i + 1]; const gap = next ? Stats.giorni(new Date(next.created_at), new Date(o.created_at)) : null; return `<li><span class="nowrap">${dateS(o.created_at)}</span><span>${o.cartoni} cartoni · ${PM[o.metodo_pagamento]} <span class="pill ${o.stato}">${ST[o.stato]}</span> ${o.pagato ? '<span class="pill paid">pagato</span>' : ""}${gap != null ? `<br><span class="gap">${gap} giorni dopo il precedente</span>` : ""}</span><b class="num">${o.stato === "annullato" ? `<s class="muted">${money(o.subtotale)}</s>` : money(o.subtotale)}<br><span class="small muted">${o.stato === "annullato" ? "provv. 0,00 € (annullato)" : o.pagato ? "provv. " + money(o.provvigione) : "provv. " + money(o.provvigione) + " (da pagare)"}</span></b></li>`; }).join("")}</ul>` : '<p class="muted">Nessun ordine ancora.</p>'}
         </div>
         <div class="card"><h2>Le tue note <span class="muted small">(${note.length})</span></h2>
           ${note.length ? note.map(n => `<div class="note"><div class="m">${dateL(n.created_at)} · ${NOTA_TIPO[n.tipo] || n.tipo}${n.esito ? ' · <span class="esito">' + esc(n.esito) + "</span>" : ""} <a href="#" data-delnota="${n.id}" class="muted" title="Elimina">✕</a></div>${esc(n.testo)}</div>`).join("") : '<p class="muted small">Nessuna nota. Usa "Segna contatto" dopo una chiamata o una visita.</p>'}
