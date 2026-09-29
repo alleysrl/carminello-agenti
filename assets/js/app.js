@@ -16,9 +16,13 @@
   const ST = { da_pagare: "Da pagare", da_spedire: "In preparazione", spedito: "Spedito", annullato: "Annullato" };
   const NOTA_TIPO = { chiamata: "Telefonata", whatsapp: "WhatsApp", email: "Email", visita: "Visita", nota: "Nota" };
   const ESITI = ["riordina", "in pausa", "nessuna risposta", "richiamare", "perso", "altro"];
+  // Una base costa 1,70 € e si vende a cartoni: il cartone da 20 non può scendere sotto 34,00 €.
+  // Lo stesso limite è scritto nel database (agente_imposta_prezzi), qui serve solo ad avvisare subito.
+  const MIN_BASE = 1.70;
+  const minCartone = p => Math.round(MIN_BASE * (p.pezzi || 1) * 100) / 100;
 
   let user = null, me = null;
-  let D = { clienti: [], ordini: [], note: [], provv: [], cfg: {}, stat: {}, byUser: {}, noteBy: {}, prezziBy: {}, prod: [] };
+  let D = { clienti: [], ordini: [], note: [], provv: [], cfg: {}, stat: {}, byUser: {}, noteBy: {}, prezziBy: {}, prezziInfo: {}, prod: [] };
 
   function toast(msg, type) {
     let box = el("toast-box"); if (!box) { box = document.createElement("div"); box.id = "toast-box"; document.body.appendChild(box); }
@@ -198,7 +202,8 @@
       const d = datiDemo(); D.clienti = d.clienti; D.ordini = d.ordini; D.note = d.note; D.provv = d.provv; D.cfg = Object.assign({}, Stats.DEFAULT_CFG); D.prod = [{ id: "base", nome_it: "Base 33 cm — cartone da 20", pezzi: 20 }];
       D.byUser = {}; D.ordini.forEach(x => { (D.byUser[x.user_id] = D.byUser[x.user_id] || []).push(x); });
       D.noteBy = {}; D.note.forEach(x => { (D.noteBy[x.user_id] = D.noteBy[x.user_id] || []).push(x); });
-      D.prezziBy = { d1: { base: 32 }, d2: { base: 33 }, d3: { base: 29 } };
+      D.prezziBy = { d1: { base: 34 }, d2: { base: 35.5 }, d3: { base: 34.5 } };
+      D.prezziInfo = { d1: { base: { da: "agente-demo", il: new Date(Date.now() - 40 * 86400000).toISOString() } } };
       D.stat = {}; D.clienti.forEach(x => { D.stat[x.id] = Stats.cliente(x, D.byUser[x.id] || [], D.cfg); });
       return;
     }
@@ -209,14 +214,18 @@
       db.rpc("provvigioni_mensili"),
       db.from("impostazioni").select("chiave,valore").eq("chiave", "avvisi").maybeSingle(),
       db.from("products").select("id,nome_it,pezzi").eq("canale", "b2b").order("ordine"),
-      db.from("prezzi_cliente").select("user_id,product_id,prezzo")
+      db.from("prezzi_cliente").select("user_id,product_id,prezzo,aggiornato_da,aggiornato_il")
     ]);
     if (c.error || o.error) toast("Errore nel caricamento: " + (c.error || o.error).message, "err");
     D.clienti = c.data || []; D.ordini = (o.data || []).filter(x => x.user_id !== user.id); D.note = n.data || []; D.provv = pv.data || [];
     D.cfg = Object.assign({}, Stats.DEFAULT_CFG, (i.data && i.data.valore) || {}); D.prod = pr.data || [];
     D.byUser = {}; D.ordini.forEach(x => { (D.byUser[x.user_id] = D.byUser[x.user_id] || []).push(x); });
     D.noteBy = {}; D.note.forEach(x => { (D.noteBy[x.user_id] = D.noteBy[x.user_id] || []).push(x); });
-    D.prezziBy = {}; (pz.data || []).forEach(x => { (D.prezziBy[x.user_id] = D.prezziBy[x.user_id] || {})[x.product_id] = x.prezzo; });
+    D.prezziBy = {}; D.prezziInfo = {};
+    (pz.data || []).forEach(x => {
+      (D.prezziBy[x.user_id] = D.prezziBy[x.user_id] || {})[x.product_id] = x.prezzo;
+      (D.prezziInfo[x.user_id] = D.prezziInfo[x.user_id] || {})[x.product_id] = { da: x.aggiornato_da, il: x.aggiornato_il };
+    });
     D.stat = {}; D.clienti.forEach(x => { D.stat[x.id] = Stats.cliente(x, D.byUser[x.id] || [], D.cfg); });
   }
   const daChiamare = () => D.clienti.filter(c => ["rischio", "ritardo", "flessione"].includes(D.stat[c.id].stato));
@@ -297,12 +306,12 @@
     el("view").innerHTML = `
       <div class="page-title"><h1>Ciao ${esc(me.nome || "")}</h1><span class="sub">${meseLabel(mc)}</span></div>
       <div class="kpis">
-        <div class="kpi"><div class="l">Clienti</div><div class="v">${D.clienti.length}</div><div class="d">${att.length ? att.length + " in attesa di attivazione" : "tutti attivi"}</div></div>
+        <div class="kpi"><div class="l">Clienti</div><div class="v">${D.clienti.length}</div><div class="d">${att.length ? att.length + " in attesa del prezzo" : "tutti attivi"}</div></div>
         <div class="kpi"><div class="l">Ordini del mese</div><div class="v">${m.ordini}</div><div class="d">${m.cartoni} cartoni</div></div>
         <div class="kpi"><div class="l">Provvigione del mese</div><div class="v">${money(m.maturata)}</div><div class="d">${Number(m.in_attesa) ? "+ " + money(m.in_attesa) + " su ordini non ancora pagati" : "su " + money(m.fatturato) + " di merce pagata"}</div></div>
         <div class="kpi ${resto() > 0.005 ? "alert" : ""}"><div class="l">Da ricevere</div><div class="v">${money(resto())}</div><div class="d"><a href="#/provvigioni">dettaglio provvigioni</a></div></div>
       </div>
-      ${att.length ? `<div class="notice info">${att.length === 1 ? "Un cliente aspetta" : att.length + " clienti aspettano"} l'attivazione da parte di Carminello (prezzo da concordare): ${att.map(c => `<a href="#/cliente/${c.id}">${esc(nome(c))}</a>`).join(", ")}.</div>` : ""}
+      ${att.length ? `<div class="notice info">${att.length === 1 ? "Un cliente aspetta il prezzo" : att.length + " clienti aspettano il prezzo"}: appena glielo fissi possono ordinare. ${att.map(c => `<a href="#/cliente/${c.id}">${esc(nome(c))}</a>`).join(", ")}.</div>` : ""}
       <div class="card"><h2>Da chiamare <span class="muted small">(${chiamare.length})</span></h2>
         ${chiamare.length ? chiamare.map(x => callCard(x)).join("") : '<p class="muted" style="margin:0">Nessuno da chiamare: i tuoi clienti stanno ordinando con il loro ritmo.</p>'}
       </div>
@@ -311,7 +320,7 @@
         <div style="display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap">
           <div id="h-qr" style="cursor:pointer" title="Tocca per ingrandire">${qrSvg(linkApp(), 150)}</div>
           <div style="flex:1;min-width:220px">
-            <p class="small" style="margin:0 0 .5rem">Il cliente inquadra questo QR con la fotocamera: si apre l'app rossa <b>già collegata a te</b>. Poi si registra come esercente e Carminello lo attiva con il prezzo.</p>
+            <p class="small" style="margin:0 0 .5rem">Il cliente inquadra questo QR con la fotocamera: si apre l'app rossa <b>già collegata a te</b>. Poi si registra come esercente e tu gli fissi il prezzo dalla sua scheda: da quel momento ordina.</p>
             <p class="small muted" style="margin:0 0 .6rem">Per averla come app sul telefono: Android → menu di Chrome → "Aggiungi a schermata Home"; iPhone → Condividi → "Aggiungi alla schermata Home".</p>
             <div class="actions"><button class="btn" id="h-qr-big">Mostra il QR a schermo intero</button><button class="btn ghost" id="h-share">Condividi il link</button></div>
           </div>
@@ -374,16 +383,73 @@
       <div class="seg"><input class="search" id="cli-q" placeholder="Cerca nome, città, email…" value="${esc(cliQ)}"><a class="btn" href="#/nuovo" style="margin-left:auto">+ Nuovo cliente</a></div>
       ${list.length ? `<div class="card"><div class="table-wrap"><table class="data"><thead><tr><th>Cliente</th><th>Stato</th><th class="num">Ordini</th><th class="num">Cartoni</th><th>Ultimo</th><th>Prossimo atteso</th><th>Prezzo</th></tr></thead><tbody>
         ${list.map(({ c, s }) => `<tr class="click" data-go="#/cliente/${c.id}">
-          <td><b>${esc(nome(c))}</b><br><span class="small muted">${TIPO[c.tipo]} · ${esc((c.indirizzo || {}).citta || "")}${c.tipo !== "b2c" && !c.approvato ? ' · <span class="pill unpaid">in attesa di attivazione</span>' : ""}</span></td>
+          <td><b>${esc(nome(c))}</b><br><span class="small muted">${TIPO[c.tipo]} · ${esc((c.indirizzo || {}).citta || "")}${c.tipo !== "b2c" && !c.approvato ? ' · <span class="pill unpaid">manca il prezzo</span>' : ""}</span></td>
           <td><span class="pill ${Stats.STATI[s.stato].colore}">${Stats.STATI[s.stato].label}</span></td>
           <td class="num">${s.n}</td><td class="num">${s.cartoni}</td>
           <td class="nowrap">${s.ultimo ? dateS(s.ultimo) + ` <span class="muted small">(${s.giorniDaUltimo} gg)</span>` : "—"}</td>
           <td class="nowrap">${s.atteso ? dateS(s.atteso) : "—"}</td>
-          <td class="small">${esc(prezzoTxt(c) || "da concordare")}</td></tr>`).join("")}
+          <td class="small">${esc(prezzoTxt(c) || "da fissare")}</td></tr>`).join("")}
       </tbody></table></div></div>` : `<div class="card"><p class="muted" style="margin:0">Non hai ancora clienti. <a href="#/nuovo">Registra il primo</a> o condividi il tuo link.</p></div>`}`;
     el("cli-q").addEventListener("input", e => { cliQ = e.target.value; vClienti(); const i = el("cli-q"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); });
     bindRows();
   }
+  // ============================================================== PREZZO
+  // Il prezzo lo decide l'agente: sopra il minimo è libero, e appena lo salva
+  // il cliente diventa operativo (niente attesa del titolare).
+  function boxPrezzo(c) {
+    if (c.tipo === "b2c" || !D.prod.length) return "";
+    const p = D.prezziBy[c.id] || {}, info = D.prezziInfo[c.id] || {};
+    return `<div class="card">
+      <h2>Prezzo di vendita</h2>
+      <p class="small muted" style="margin:-.5rem 0 .9rem">${c.approvato
+        ? "Lo decidi tu. Il prezzo nuovo vale dai prossimi ordini."
+        : "Lo decidi tu: appena lo salvi il cliente può ordinare, non deve aspettare Carminello."}</p>
+      ${D.prod.map(x => {
+        const m = minCartone(x), v = p[x.id] != null ? Number(p[x.id]).toFixed(2).replace(".", ",") : "", i = info[x.id] || {};
+        return `<div class="field">
+          <label>${esc(x.nome_it)} — € a cartone</label>
+          <div class="row"><input type="text" inputmode="decimal" autocomplete="off" data-prezzo="${x.id}" value="${v}" placeholder="minimo ${m.toFixed(2).replace(".", ",")}" aria-label="Euro a cartone"><div class="small" data-base="${x.id}" style="align-self:center"></div></div>
+          <div class="small muted">Minimo ${money(m)} a cartone (${money(MIN_BASE)} a base × ${x.pezzi} basi): sotto non si può scendere, sopra decidi tu.${i.il ? " · Ultimo prezzo messo " + (i.da && me && i.da === me.id ? "da te" : "da Carminello") + " il " + dateS(i.il) : ""}</div>
+        </div>`;
+      }).join("")}
+      <div class="err" id="pz-err" hidden></div>
+      <div class="actions"><button class="btn" id="pz-salva">${c.approvato ? "Salva il nuovo prezzo" : "Salva il prezzo e attiva il cliente"}</button></div>
+    </div>`;
+  }
+  function bindPrezzo(c) {
+    const btn = el("pz-salva"); if (!btn) return;
+    const campi = D.prod.map(x => ({ x, i: el("view").querySelector(`[data-prezzo="${x.id}"]`), b: el("view").querySelector(`[data-base="${x.id}"]`) })).filter(f => f.i);
+    const leggi = f => Number(String(f.i.value).replace(",", ".").trim());
+    function aggiorna() {
+      campi.forEach(f => {
+        const v = leggi(f), m = minCartone(f.x);
+        if (!f.i.value.trim() || !isFinite(v)) { f.b.textContent = ""; f.b.style.color = ""; return; }
+        if (v < m - 0.001) { f.b.textContent = "sotto il minimo di " + money(m); f.b.style.color = "var(--red)"; }
+        else { f.b.textContent = "= " + money(v / (f.x.pezzi || 1)) + " a base"; f.b.style.color = ""; }
+      });
+    }
+    campi.forEach(f => f.i.addEventListener("input", aggiorna)); aggiorna();
+    btn.onclick = async () => {
+      const err = el("pz-err"), p = {}; let msg = "";
+      for (const f of campi) {
+        const v = leggi(f), m = minCartone(f.x);
+        if (!f.i.value.trim()) { msg = "Scrivi il prezzo prima di salvare."; break; }
+        if (!isFinite(v)) { msg = "Il prezzo deve essere un numero, per esempio 35,00."; break; }
+        if (v < m - 0.001) { msg = "Il prezzo non può scendere sotto " + money(m) + " a cartone (" + money(MIN_BASE) + " a base). Puoi solo salire."; break; }
+        p[f.x.id] = Math.round(v * 100) / 100;
+      }
+      if (msg) { err.textContent = msg; err.hidden = false; toast(msg, "err"); return; }
+      err.hidden = true;
+      if (!c.approvato && !confirm(nome(c) + " potrà ordinare subito a " + money(p[campi[0].x.id]) + " a cartone. Confermi?")) return;
+      btn.disabled = true;
+      const { error } = await dbw.rpc("agente_imposta_prezzi", { p_user_id: c.id, p_prezzi: p });
+      btn.disabled = false;
+      if (error) { err.textContent = error.message; err.hidden = false; toast(error.message, "err"); return; }
+      toast(c.approvato ? "Prezzo aggiornato" : "Prezzo fissato: il cliente può ordinare", "ok");
+      refresh();
+    };
+  }
+
   function vCliente(uid) {
     const c = D.clienti.find(x => x.id === uid); if (!c) { el("view").innerHTML = '<div class="notice err">Cliente non trovato o non collegato a te.</div>'; return; }
     const s = D.stat[c.id]; const note = D.noteBy[c.id] || []; const a = c.indirizzo || {}; const t = tel(c), w = wa(t); const tutti = D.byUser[c.id] || [];
@@ -394,12 +460,12 @@
         <div class="info">
           <h1 style="margin-bottom:.3rem">${esc(nome(c))} <span class="pill ${c.tipo}">${TIPO[c.tipo]}</span> <span class="pill ${Stats.STATI[s.stato].colore}">${Stats.STATI[s.stato].label}</span></h1>
           <p style="margin:0 0 .6rem;color:var(--ink-2)">${esc(Stats.spiega(s))}</p>
-          ${c.tipo !== "b2c" && !c.approvato ? '<div class="notice warn small">In attesa di attivazione: Carminello deve concordare il prezzo e attivarlo. Fino ad allora non può ordinare.</div>' : ""}
+          ${c.tipo !== "b2c" && !c.approvato ? '<div class="notice warn small">Non può ancora ordinare: fissa il prezzo qui sotto e sarà subito operativo.</div>' : ""}
           <dl class="kv">
             <dt>Referente</dt><dd>${esc(((c.nome || "") + " " + (c.cognome || "")).trim() || "—")}</dd>
             <dt>Contatti</dt><dd>${esc(c.email || "")}${t ? " · " + esc(t) : ""}</dd>
             <dt>Indirizzo</dt><dd>${esc([a.via, (a.cap || "") + " " + (a.citta || ""), a.prov].filter(x => x && x.trim()).join(", ") || "—")}</dd>
-            <dt>Prezzo</dt><dd>${esc(prezzoTxt(c) || "da concordare con Carminello")}</dd>
+            <dt>Prezzo</dt><dd>${esc(prezzoTxt(c) || "da fissare qui sotto")}</dd>
             <dt>Cliente dal</dt><dd>${dateS(c.created_at)}</dd>
           </dl>
         </div>
@@ -408,6 +474,7 @@
           <button class="btn ghost" data-nota="${c.id}">Segna contatto</button>
         </div>
       </div>
+      ${boxPrezzo(c)}
       <div class="kpis">
         <div class="kpi"><div class="l">Ordini</div><div class="v">${s.n}</div><div class="d">${s.primo ? "dal " + dateS(s.primo) : ""}</div></div>
         <div class="kpi"><div class="l">Cartoni</div><div class="v">${s.cartoni}</div><div class="d">${s.n ? (s.cartoni / s.n).toFixed(1) + " a ordine" : ""}</div></div>
@@ -422,7 +489,7 @@
           ${note.length ? note.map(n => `<div class="note"><div class="m">${dateL(n.created_at)} · ${NOTA_TIPO[n.tipo] || n.tipo}${n.esito ? ' · <span class="esito">' + esc(n.esito) + "</span>" : ""} <a href="#" data-delnota="${n.id}" class="muted" title="Elimina">✕</a></div>${esc(n.testo)}</div>`).join("") : '<p class="muted small">Nessuna nota. Usa "Segna contatto" dopo una chiamata o una visita.</p>'}
         </div>
       </div>`;
-    bindCallButtons();
+    bindCallButtons(); bindPrezzo(c);
     el("view").querySelectorAll("[data-delnota]").forEach(x => x.onclick = async e => { e.preventDefault(); if (!confirm("Eliminare questa nota?")) return; const { error } = await dbw.rpc("agente_elimina_nota", { p_id: x.getAttribute("data-delnota") }); if (error) toast(error.message, "err"); else refresh(); });
   }
 
@@ -445,7 +512,7 @@
             <div class="field"><label>PEC (facoltativa)</label><input id="c-pec" type="email"></div>
             <div class="err" id="c-err" hidden></div>
             <button class="btn block" type="submit" id="c-invia">Registra e invia l'email al cliente</button>
-            <p class="small muted" style="margin:.6rem 0 0">Il cliente riceve un'email per scegliere la password. Carminello lo contatta per il prezzo e lo attiva: da quel momento ordina da solo dall'app rossa e tu vedi tutto qui.</p>
+            <p class="small muted" style="margin:.6rem 0 0">Il cliente riceve un'email per scegliere la password. Poi apri la sua scheda, gli fissi il prezzo e da quel momento ordina da solo dall'app rossa: tu vedi tutto qui.</p>
           </form>
         </div>
         <div>
