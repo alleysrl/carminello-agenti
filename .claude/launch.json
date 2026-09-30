@@ -16,6 +16,14 @@
         "/private/tmp/claude-501/-Users-ivosabatini-Desktop-APP-DELIVERY/9df633f5-c199-4434-9179-30a473468734/scratchpad/serve-agenti.py"
       ],
       "port": 8772
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "/private/tmp/claude-501/-Users-ivosabatini-Desktop-APP-DELIVERY/9df633f5-c199-4434-9179-30a473468734/scratchpad/serve-dash.py"
+      ],
+      "port": 8773
     }
   ]
 }
